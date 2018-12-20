@@ -111,6 +111,8 @@ void mailbox_free(struct Mailbox **m)
   if (!m || !*m)
     return;
 
+  mutt_mailbox_changed(*m, MBN_CLOSED);
+
   if (Context && Context->mailbox && Context->mailbox == *m)
   {
     mx_cleanup_context(Context);
