@@ -45,6 +45,7 @@
 #include "mutt_menu.h"
 #include "options.h"
 #include "pattern.h"
+#include "mutt/queue.h"
 
 /* globals */
 int *ColorQuote = NULL;
@@ -772,7 +773,7 @@ static enum CommandResult add_pattern(struct ColorLineHead *top, const char *s,
       mutt_str_strfcpy(buf, s, sizeof(buf));
       mutt_check_simple(buf, sizeof(buf), NONULL(SimpleSearch));
       tmp->color_pattern = mutt_pattern_comp(buf, MUTT_FULL_MSG, err);
-      if (!tmp->color_pattern)
+      if (SLIST_EMPTY(&tmp->color_pattern))
       {
         free_color_line(tmp, true);
         return MUTT_CMD_ERROR;

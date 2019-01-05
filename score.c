@@ -44,6 +44,7 @@
 #include "pattern.h"
 #include "protos.h"
 #include "sort.h"
+#include "mutt/queue.h"
 
 /* These Config Variables are only used in score.c */
 short ScoreThresholdDelete; ///< Config: Messages with a lower score will be automatically deleted
@@ -56,7 +57,7 @@ short ScoreThresholdRead; ///< Config: Messages with a lower score will be autom
 struct Score
 {
   char *str;
-  struct Pattern *pat;
+  struct PatternHead pat;
   int val;
   int exact; /**< if this rule matches, don't evaluate any more */
   struct Score *next;
@@ -100,7 +101,7 @@ enum CommandResult mutt_parse_score(struct Buffer *buf, struct Buffer *s,
 {
   struct Score *ptr = NULL, *last = NULL;
   char *pattern = NULL, *pc = NULL;
-  struct Pattern *pat = NULL;
+  struct PatternHead pat;
 
   mutt_extract_token(buf, s, 0);
   if (!MoreArgs(s))
@@ -126,7 +127,7 @@ enum CommandResult mutt_parse_score(struct Buffer *buf, struct Buffer *s,
   if (!ptr)
   {
     pat = mutt_pattern_comp(pattern, 0, err);
-    if (!pat)
+    if (SLIST_EMPTY(&pat))
     {
       FREE(&pattern);
       return MUTT_CMD_ERROR;
