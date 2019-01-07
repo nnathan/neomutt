@@ -58,80 +58,100 @@ bool ResumeEditedDraftFiles;
  *
  *  In the representation {a} is expanded to all the pattern fields.
  */
-static int canonical_pattern(char *s, struct Pattern *pat, int indent)
+int canonical_pattern(char *s, struct PatternHead pat, int indent)
 {
   char *p = s;
 
   for (int i = 0; i < 2*indent; i++) {
     p += sprintf(p, " ");
   }
-  p += sprintf(p, "{");
-  p += sprintf(p, "%d,", pat->op);
-  p += sprintf(p, "%d,", pat->not);
-  p += sprintf(p, "%d,", pat->alladdr);
-  p += sprintf(p, "%d,", pat->stringmatch);
-  p += sprintf(p, "%d,", pat->groupmatch);
-  p += sprintf(p, "%d,", pat->ign_case);
-  p += sprintf(p, "%d,", pat->isalias);
-  p += sprintf(p, "%d,", pat->ismulti);
-  p += sprintf(p, "%d,", pat->min);
-  p += sprintf(p, "%d,", pat->max);
-  p += sprintf(p, "\"%s\",", pat->p.str ? pat->p.str : "");
-  p += sprintf(p, "%s,", pat->child ? "(ptr)" : "(null)");
-  p += sprintf(p, "%s", pat->next ? "(ptr)" : "(null)");
-  p += sprintf(p, "}\n");
 
-  if (pat->child)
+  struct Pattern *e;
+
+  p += sprintf(p, "");
+
+  SLIST_FOREACH(e, &pat, entries)
   {
-    p += canonical_pattern(p, pat->child, indent + 1);
-  }
+    p += sprintf(p, "{");
+    p += sprintf(p, "%d,", e->op);
+    p += sprintf(p, "%d,", e->not);
+    p += sprintf(p, "%d,", e->alladdr);
+    p += sprintf(p, "%d,", e->stringmatch);
+    p += sprintf(p, "%d,", e->groupmatch);
+    p += sprintf(p, "%d,", e->ign_case);
+    p += sprintf(p, "%d,", e->isalias);
+    p += sprintf(p, "%d,", e->ismulti);
+    p += sprintf(p, "%d,", e->min);
+    p += sprintf(p, "%d,", e->max);
+    p += sprintf(p, "\"%s\",", e->p.str ? e->p.str : "");
+    p += sprintf(p, "%s,", SLIST_EMPTY(&e->child) ? "(null)" : "(list)");
+    p += sprintf(p, "%s", SLIST_NEXT(e, entries) ? "(next)" : "(null)");
+    p += sprintf(p, "}\n");
 
-  if (pat->next)
-    p += canonical_pattern(p, pat->next, indent);
+    if (!SLIST_EMPTY(&e->child))
+      p += canonical_pattern(p, e->child, indent + 1);
+  }
 
   return p - s;
 }
 
 /* best-effort pattern tree compare, returns 0 if equal otherwise 1 */
-static int cmp_pattern(struct Pattern *p1, struct Pattern *p2)
+static int cmp_pattern(struct PatternHead p1, struct PatternHead p2)
 {
-  if (!p1 || !p2)
-    return p1 || p2;
+  if (SLIST_EMPTY(&p1) || SLIST_EMPTY(&p2))
+  {
+    return !(SLIST_EMPTY(&p1) && SLIST_EMPTY(&p2));
+  }
 
-  if (p1->op != p2->op)
-    return 1;
-  if (p1->not != p2->not)
-    return 1;
-  if (p1->alladdr != p2->alladdr)
-    return 1;
-  if (p1->stringmatch != p2->stringmatch)
-    return 1;
-  if (p1->groupmatch != p2->groupmatch)
-    return 1;
-  if (p1->ign_case != p2->ign_case)
-    return 1;
-  if (p1->isalias != p2->isalias)
-    return 1;
-  if (p1->ismulti != p2->ismulti)
-    return 1;
-  if (p1->min != p2->min)
-    return 1;
-  if (p1->max != p2->max)
-    return 1;
+  while (!SLIST_EMPTY(&p1))
+  {
+    struct Pattern *l, *r;
 
-  if (p1->stringmatch && strcmp(p1->p.str, p2->p.str))
-    return 1;
+    l = SLIST_FIRST(&p1);
+    r = SLIST_FIRST(&p2);
 
-  if (cmp_pattern(p1->child, p2->child))
-    return 1;
+    /* if l is NULL then r must be NULL (and vice-versa) */
+    if ((!l || !r) && !(!l && !r))
+      return 1;
 
-  return cmp_pattern(p1->next, p2->next);
+    SLIST_REMOVE_HEAD(&p1, entries);
+    SLIST_REMOVE_HEAD(&p2, entries);
+
+    if (l->op != r->op)
+      return 1;
+    if (l->not != r->not)
+      return 1;
+    if (l->alladdr != r->alladdr)
+      return 1;
+    if (l->stringmatch != r->stringmatch)
+      return 1;
+    if (l->groupmatch != r->groupmatch)
+      return 1;
+    if (l->ign_case != r->ign_case)
+      return 1;
+    if (l->isalias != r->isalias)
+      return 1;
+    if (l->ismulti != r->ismulti)
+      return 1;
+    if (l->min != r->min)
+      return 1;
+    if (l->max != r->max)
+      return 1;
+
+    if (l->stringmatch && strcmp(l->p.str, r->p.str))
+      return 1;
+
+    if (cmp_pattern(l->child, r->child))
+      return 1;
+  }
+
+  return 0;
 }
 
 void test_mutt_pattern_comp(void)
 {
   struct Buffer err;
-  struct Pattern *pat;
+  struct PatternHead pat;
 
   err.dsize = 1024;
   err.data = mutt_mem_malloc(err.dsize);
@@ -142,10 +162,10 @@ void test_mutt_pattern_comp(void)
     mutt_buffer_reset(&err);
     pat = mutt_pattern_comp(s, 0, &err);
 
-    if (!TEST_CHECK(!pat))
+    if (!TEST_CHECK(SLIST_EMPTY(&pat)))
     {
-      TEST_MSG("Expected: pat == 0");
-      TEST_MSG("Actual  : pat == %p", pat);
+      TEST_MSG("Expected: pat == <empty>");
+      TEST_MSG("Actual  : pat == <non-empty>");
     }
 
     char *msg = "empty pattern";
@@ -154,6 +174,8 @@ void test_mutt_pattern_comp(void)
       TEST_MSG("Expected: %s", msg);
       TEST_MSG("Actual  : %s", err.data);
     }
+
+    mutt_pattern_free(&pat);
   }
 
   { /* invalid */
@@ -162,10 +184,10 @@ void test_mutt_pattern_comp(void)
     mutt_buffer_reset(&err);
     pat = mutt_pattern_comp(s, 0, &err);
 
-    if (!TEST_CHECK(!pat))
+    if (!TEST_CHECK(SLIST_EMPTY(&pat)))
     {
-      TEST_MSG("Expected: pat == 0");
-      TEST_MSG("Actual  : pat == %p", pat);
+      TEST_MSG("Expected: pat == <empty>");
+      TEST_MSG("Actual  : pat == <not-empty>");
     }
 
     char *msg = "error in pattern at: x";
@@ -174,6 +196,8 @@ void test_mutt_pattern_comp(void)
       TEST_MSG("Expected: %s", msg);
       TEST_MSG("Actual  : %s", err.data);
     }
+
+    mutt_pattern_free(&pat);
   }
 
   { /* missing parameter */
@@ -182,10 +206,10 @@ void test_mutt_pattern_comp(void)
     mutt_buffer_reset(&err);
     pat = mutt_pattern_comp(s, 0, &err);
 
-    if (!TEST_CHECK(!pat))
+    if (!TEST_CHECK(SLIST_EMPTY(&pat)))
     {
-      TEST_MSG("Expected: pat == 0");
-      TEST_MSG("Actual  : pat == %p", pat);
+      TEST_MSG("Expected: pat == <empty>");
+      TEST_MSG("Actual  : pat == <not-empty>");
     }
 
     char *msg = "missing parameter";
@@ -194,6 +218,8 @@ void test_mutt_pattern_comp(void)
       TEST_MSG("Expected: %s", msg);
       TEST_MSG("Actual  : %s", err.data);
     }
+
+    mutt_pattern_free(&pat);
   }
 
   { /* error in pattern */
@@ -202,10 +228,10 @@ void test_mutt_pattern_comp(void)
     mutt_buffer_reset(&err);
     pat = mutt_pattern_comp(s, 0, &err);
 
-    if (!TEST_CHECK(!pat))
+    if (!TEST_CHECK(SLIST_EMPTY(&pat)))
     {
-      TEST_MSG("Expected: pat == 0");
-      TEST_MSG("Actual  : pat == %p", pat);
+      TEST_MSG("Expected: pat == <empty>");
+      TEST_MSG("Actual  : pat == <not-empty>");
     }
 
     char *msg = "error in pattern at: | =s foo";
@@ -214,6 +240,8 @@ void test_mutt_pattern_comp(void)
       TEST_MSG("Expected: %s", msg);
       TEST_MSG("Actual  : %s", err.data);
     }
+
+    mutt_pattern_free(&pat);
   }
 
   {
@@ -222,30 +250,31 @@ void test_mutt_pattern_comp(void)
     mutt_buffer_reset(&err);
     pat = mutt_pattern_comp(s, 0, &err);
 
-    if (!TEST_CHECK(pat != NULL))
+    if (!TEST_CHECK(!SLIST_EMPTY(&pat)))
     {
-      TEST_MSG("Expected: pat != 0");
-      TEST_MSG("Actual  : pat == %p", pat);
+      TEST_MSG("Expected: pat == <not-empty>");
+      TEST_MSG("Actual  : pat == <empty>");
     }
 
-    struct Pattern expected = { .op = 30 /* MUTT_SUBJECT */,
-                                .not = 0,
-                                .alladdr = 0,
-                                .stringmatch = 1,
-                                .groupmatch = 0,
-                                .ign_case = 1,
-                                .isalias = 0,
-                                .ismulti = 0,
-                                .min = 0,
-                                .max = 0,
-                                .next = NULL,
-                                .child = NULL,
-                                .p.str = "foobar" };
+    struct PatternHead expected;
+    SLIST_INIT(&expected);
+    struct Pattern e = { .op = 30 /* MUTT_SUBJECT */,
+                         .not = 0,
+                         .alladdr = 0,
+                         .stringmatch = 1,
+                         .groupmatch = 0,
+                         .ign_case = 1,
+                         .isalias = 0,
+                         .ismulti = 0,
+                         .min = 0,
+                         .max = 0,
+                         .p.str = "foobar" };
+    SLIST_INSERT_HEAD(&expected, &e, entries);
 
-    if (!TEST_CHECK(!cmp_pattern(pat, &expected)))
+    if (!TEST_CHECK(!cmp_pattern(pat, expected)))
     {
       char s2[1024];
-      canonical_pattern(s2, &expected, 0);
+      canonical_pattern(s2, expected, 0);
       TEST_MSG("Expected:\n%s", s2);
       canonical_pattern(s2, pat, 0);
       TEST_MSG("Actual:\n%s", s2);
@@ -267,30 +296,32 @@ void test_mutt_pattern_comp(void)
     mutt_buffer_reset(&err);
     pat = mutt_pattern_comp(s, 0, &err);
 
-    if (!TEST_CHECK(pat != NULL))
+    if (!TEST_CHECK(!SLIST_EMPTY(&pat)))
     {
-      TEST_MSG("Expected: pat != 0");
-      TEST_MSG("Actual  : pat == %p", pat);
+      TEST_MSG("Expected: pat == <not-empty>");
+      TEST_MSG("Actual  : pat == <empty>");
     }
 
-    struct Pattern expected = { .op = 30 /* MUTT_SUBJECT */,
-                                .not = 1,
-                                .alladdr = 0,
-                                .stringmatch = 1,
-                                .groupmatch = 0,
-                                .ign_case = 1,
-                                .isalias = 0,
-                                .ismulti = 0,
-                                .min = 0,
-                                .max = 0,
-                                .next = NULL,
-                                .child = NULL,
-                                .p.str = "foobar" };
+    struct PatternHead expected;
+    SLIST_INIT(&expected);
+    struct Pattern e = { .op = 30 /* MUTT_SUBJECT */,
+                         .not = 1,
+                         .alladdr = 0,
+                         .stringmatch = 1,
+                         .groupmatch = 0,
+                         .ign_case = 1,
+                         .isalias = 0,
+                         .ismulti = 0,
+                         .min = 0,
+                         .max = 0,
+                         .p.str = "foobar" };
+    SLIST_INIT(&e.child);
+    SLIST_INSERT_HEAD(&expected, &e, entries);
 
-    if (!TEST_CHECK(!cmp_pattern(pat, &expected)))
+    if (!TEST_CHECK(!cmp_pattern(pat, expected)))
     {
       char s2[1024];
-      canonical_pattern(s2, &expected, 0);
+      canonical_pattern(s2, expected, 0);
       TEST_MSG("Expected:\n%s", s2);
       canonical_pattern(s2, pat, 0);
       TEST_MSG("Actual:\n%s", s2);
@@ -312,63 +343,137 @@ void test_mutt_pattern_comp(void)
     mutt_buffer_reset(&err);
     pat = mutt_pattern_comp(s, 0, &err);
 
-    if (!TEST_CHECK(pat != NULL))
+    if (!TEST_CHECK(!SLIST_EMPTY(&pat)))
     {
-      TEST_MSG("Expected: pat != 0");
-      TEST_MSG("Actual  : pat == %p", pat);
+      TEST_MSG("Expected: pat == <not-empty>");
+      TEST_MSG("Actual  : pat == <empty>");
     }
 
-    struct Pattern expected[3] = { /* root */
-                                   { .op = 22 /* MUTT_AND */,
-                                     .not = 0,
-                                     .alladdr = 0,
-                                     .stringmatch = 0,
-                                     .groupmatch = 0,
-                                     .ign_case = 0,
-                                     .isalias = 0,
-                                     .ismulti = 0,
-                                     .min = 0,
-                                     .max = 0,
-                                     .next = NULL,
-                                     .child = NULL,
-                                     .p.str = NULL },
-                                   /* root->child */
-                                   { .op = 30 /* MUTT_SUBJECT */,
-                                     .not = 0,
-                                     .alladdr = 0,
-                                     .stringmatch = 1,
-                                     .groupmatch = 0,
-                                     .ign_case = 1,
-                                     .isalias = 0,
-                                     .ismulti = 0,
-                                     .min = 0,
-                                     .max = 0,
-                                     .next = NULL,
-                                     .child = NULL,
-                                     .p.str = "foo" },
-                                   /* root->child->next */
-                                   { .op = 30 /* MUTT_SUBJECT */,
-                                     .not = 0,
-                                     .alladdr = 0,
-                                     .stringmatch = 1,
-                                     .groupmatch = 0,
-                                     .ign_case = 1,
-                                     .isalias = 0,
-                                     .ismulti = 0,
-                                     .min = 0,
-                                     .max = 0,
-                                     .next = NULL,
-                                     .child = NULL,
-                                     .p.str = "bar" }
+    struct PatternHead expected;
+
+    struct Pattern e[3] = { /* root */
+                            { .op = 22 /* MUTT_AND */,
+                              .not = 0,
+                              .alladdr = 0,
+                              .stringmatch = 0,
+                              .groupmatch = 0,
+                              .ign_case = 0,
+                              .isalias = 0,
+                              .ismulti = 0,
+                              .min = 0,
+                              .max = 0,
+                              .p.str = NULL },
+                            /* root->child */
+                            { .op = 30 /* MUTT_SUBJECT */,
+                              .not = 0,
+                              .alladdr = 0,
+                              .stringmatch = 1,
+                              .groupmatch = 0,
+                              .ign_case = 1,
+                              .isalias = 0,
+                              .ismulti = 0,
+                              .min = 0,
+                              .max = 0,
+                              .p.str = "foo" },
+                            /* root->child->next */
+                            { .op = 30 /* MUTT_SUBJECT */,
+                              .not = 0,
+                              .alladdr = 0,
+                              .stringmatch = 1,
+                              .groupmatch = 0,
+                              .ign_case = 1,
+                              .isalias = 0,
+                              .ismulti = 0,
+                              .min = 0,
+                              .max = 0,
+                              .p.str = "bar" }
     };
 
-    expected[0].child = &expected[1];
-    expected[1].next = &expected[2];
+    SLIST_INIT(&expected);
+    SLIST_INSERT_HEAD(&expected, &e[0], entries);
+    SLIST_INSERT_HEAD(&e[0].child, &e[1], entries);
+    SLIST_INSERT_AFTER(&e[1], &e[2], entries);
 
-    if (!TEST_CHECK(!cmp_pattern(pat, &expected[0])))
+    if (!TEST_CHECK(!cmp_pattern(pat, expected)))
+    {
+      char s[1024];
+      canonical_pattern(s, expected, 0);
+      TEST_MSG("Expected:\n%s", s);
+      canonical_pattern(s, pat, 0);
+      TEST_MSG("Actual:\n%s", s);
+    }
+
+    char *msg = "";
+    if (!TEST_CHECK(!strcmp(err.data, msg)))
+    {
+      TEST_MSG("Expected: %s", msg);
+      TEST_MSG("Actual  : %s", err.data);
+    }
+
+    mutt_pattern_free(&pat);
+  }
+
+  {
+    char *s = "(=s foo =s bar)";
+
+    mutt_buffer_reset(&err);
+    pat = mutt_pattern_comp(s, 0, &err);
+
+    if (!TEST_CHECK(!SLIST_EMPTY(&pat)))
+    {
+      TEST_MSG("Expected: pat == <not-empty>");
+      TEST_MSG("Actual  : pat == <empty>");
+    }
+
+    struct PatternHead expected;
+
+    struct Pattern e[3] = { /* root */
+                            { .op = 22 /* MUTT_AND */,
+                              .not = 0,
+                              .alladdr = 0,
+                              .stringmatch = 0,
+                              .groupmatch = 0,
+                              .ign_case = 0,
+                              .isalias = 0,
+                              .ismulti = 0,
+                              .min = 0,
+                              .max = 0,
+                              .p.str = NULL },
+                            /* root->child */
+                            { .op = 30 /* MUTT_SUBJECT */,
+                              .not = 0,
+                              .alladdr = 0,
+                              .stringmatch = 1,
+                              .groupmatch = 0,
+                              .ign_case = 1,
+                              .isalias = 0,
+                              .ismulti = 0,
+                              .min = 0,
+                              .max = 0,
+                              .p.str = "foo" },
+                            /* root->child->next */
+                            { .op = 30 /* MUTT_SUBJECT */,
+                              .not = 0,
+                              .alladdr = 0,
+                              .stringmatch = 1,
+                              .groupmatch = 0,
+                              .ign_case = 1,
+                              .isalias = 0,
+                              .ismulti = 0,
+                              .min = 0,
+                              .max = 0,
+                              .p.str = "bar" }
+    };
+
+    SLIST_INIT(&expected);
+    SLIST_INSERT_HEAD(&expected, &e[0], entries);
+    SLIST_INSERT_HEAD(&e[0].child, &e[1], entries);
+    SLIST_INSERT_AFTER(&e[1], &e[2], entries);
+
+    if (!TEST_CHECK(!cmp_pattern(pat, expected)))
     {
       char s2[1024];
-      canonical_pattern(s2, &expected[0], 0);
+      canonical_pattern(s2, expected, 0);
       TEST_MSG("Expected:\n%s", s2);
       canonical_pattern(s2, pat, 0);
       TEST_MSG("Actual:\n%s", s2);
@@ -390,63 +495,61 @@ void test_mutt_pattern_comp(void)
     mutt_buffer_reset(&err);
     pat = mutt_pattern_comp(s, 0, &err);
 
-    if (!TEST_CHECK(pat != NULL))
+    if (!TEST_CHECK(!SLIST_EMPTY(&pat)))
     {
-      TEST_MSG("Expected: pat != 0");
-      TEST_MSG("Actual  : pat == %p", pat);
+      TEST_MSG("Expected: pat == <not-empty>");
+      TEST_MSG("Actual  : pat == <empty>");
     }
 
-    struct Pattern expected[3] = { /* root */
-                                   { .op = 22 /* MUTT_AND */,
-                                     .not = 1,
-                                     .alladdr = 0,
-                                     .stringmatch = 0,
-                                     .groupmatch = 0,
-                                     .ign_case = 0,
-                                     .isalias = 0,
-                                     .ismulti = 0,
-                                     .min = 0,
-                                     .max = 0,
-                                     .next = NULL,
-                                     .child = NULL,
-                                     .p.str = NULL },
-                                   /* root->child */
-                                   { .op = 30 /* MUTT_SUBJECT */,
-                                     .not = 0,
-                                     .alladdr = 0,
-                                     .stringmatch = 1,
-                                     .groupmatch = 0,
-                                     .ign_case = 1,
-                                     .isalias = 0,
-                                     .ismulti = 0,
-                                     .min = 0,
-                                     .max = 0,
-                                     .next = NULL,
-                                     .child = NULL,
-                                     .p.str = "foo" },
-                                   /* root->child->next */
-                                   { .op = 30 /* MUTT_SUBJECT */,
-                                     .not = 0,
-                                     .alladdr = 0,
-                                     .stringmatch = 1,
-                                     .groupmatch = 0,
-                                     .ign_case = 1,
-                                     .isalias = 0,
-                                     .ismulti = 0,
-                                     .min = 0,
-                                     .max = 0,
-                                     .next = NULL,
-                                     .child = NULL,
-                                     .p.str = "bar" }
+    struct PatternHead expected;
+
+    struct Pattern e[3] = { /* root */
+                            { .op = 22 /* MUTT_AND */,
+                              .not = 1,
+                              .alladdr = 0,
+                              .stringmatch = 0,
+                              .groupmatch = 0,
+                              .ign_case = 0,
+                              .isalias = 0,
+                              .ismulti = 0,
+                              .min = 0,
+                              .max = 0,
+                              .p.str = NULL },
+                            /* root->child */
+                            { .op = 30 /* MUTT_SUBJECT */,
+                              .not = 0,
+                              .alladdr = 0,
+                              .stringmatch = 1,
+                              .groupmatch = 0,
+                              .ign_case = 1,
+                              .isalias = 0,
+                              .ismulti = 0,
+                              .min = 0,
+                              .max = 0,
+                              .p.str = "foo" },
+                            /* root->child->next */
+                            { .op = 30 /* MUTT_SUBJECT */,
+                              .not = 0,
+                              .alladdr = 0,
+                              .stringmatch = 1,
+                              .groupmatch = 0,
+                              .ign_case = 1,
+                              .isalias = 0,
+                              .ismulti = 0,
+                              .min = 0,
+                              .max = 0,
+                              .p.str = "bar" }
     };
 
-    expected[0].child = &expected[1];
-    expected[1].next = &expected[2];
+    SLIST_INIT(&expected);
+    SLIST_INSERT_HEAD(&expected, &e[0], entries);
+    SLIST_INSERT_HEAD(&e[0].child, &e[1], entries);
+    SLIST_INSERT_AFTER(&e[1], &e[2], entries);
 
-    if (!TEST_CHECK(!cmp_pattern(pat, &expected[0])))
+    if (!TEST_CHECK(!cmp_pattern(pat, expected)))
     {
       char s2[1024];
-      canonical_pattern(s2, &expected[0], 0);
+      canonical_pattern(s2, expected, 0);
       TEST_MSG("Expected:\n%s", s2);
       canonical_pattern(s2, pat, 0);
       TEST_MSG("Actual:\n%s", s2);
@@ -468,78 +571,74 @@ void test_mutt_pattern_comp(void)
     mutt_buffer_reset(&err);
     pat = mutt_pattern_comp(s, 0, &err);
 
-    if (!TEST_CHECK(pat != NULL))
+    if (!TEST_CHECK(!SLIST_EMPTY(&pat)))
     {
-      TEST_MSG("Expected: pat != 0");
-      TEST_MSG("Actual  : pat == %p", pat);
+      TEST_MSG("Expected: pat == <not-empty>");
+      TEST_MSG("Actual  : pat == <empty>");
     }
 
-    struct Pattern expected[4] = { /* root */
-                                   { .op = 22 /* MUTT_AND */,
-                                     .not = 0,
-                                     .alladdr = 0,
-                                     .stringmatch = 0,
-                                     .groupmatch = 0,
-                                     .ign_case = 0,
-                                     .isalias = 0,
-                                     .ismulti = 0,
-                                     .min = 0,
-                                     .max = 0,
-                                     .next = NULL,
-                                     .child = NULL,
-                                     .p.str = NULL },
-                                   /* root->child */
-                                   { .op = 30 /* MUTT_SUBJECT */,
-                                     .not = 0,
-                                     .alladdr = 0,
-                                     .stringmatch = 1,
-                                     .groupmatch = 0,
-                                     .ign_case = 1,
-                                     .isalias = 0,
-                                     .ismulti = 0,
-                                     .min = 0,
-                                     .max = 0,
-                                     .next = NULL,
-                                     .child = NULL,
-                                     .p.str = "foo" },
-                                   /* root->child->next */
-                                   { .op = 30 /* MUTT_SUBJECT */,
-                                     .not = 0,
-                                     .alladdr = 0,
-                                     .stringmatch = 1,
-                                     .groupmatch = 0,
-                                     .ign_case = 1,
-                                     .isalias = 0,
-                                     .ismulti = 0,
-                                     .min = 0,
-                                     .max = 0,
-                                     .next = NULL,
-                                     .child = NULL,
-                                     .p.str = "bar" },
-                                   /* root->child->next->next */
-                                   { .op = 30 /* MUTT_SUBJECT */,
-                                     .not = 0,
-                                     .alladdr = 0,
-                                     .stringmatch = 1,
-                                     .groupmatch = 0,
-                                     .ign_case = 1,
-                                     .isalias = 0,
-                                     .ismulti = 0,
-                                     .min = 0,
-                                     .max = 0,
-                                     .next = NULL,
-                                     .child = NULL,
-                                     .p.str = "quux" }
+    struct PatternHead expected;
+
+    struct Pattern e[4] = { /* root */
+                            { .op = 22 /* MUTT_AND */,
+                              .not = 0,
+                              .alladdr = 0,
+                              .stringmatch = 0,
+                              .groupmatch = 0,
+                              .ign_case = 0,
+                              .isalias = 0,
+                              .ismulti = 0,
+                              .min = 0,
+                              .max = 0,
+                              .p.str = NULL },
+                            /* root->child */
+                            { .op = 30 /* MUTT_SUBJECT */,
+                              .not = 0,
+                              .alladdr = 0,
+                              .stringmatch = 1,
+                              .groupmatch = 0,
+                              .ign_case = 1,
+                              .isalias = 0,
+                              .ismulti = 0,
+                              .min = 0,
+                              .max = 0,
+                              .p.str = "foo" },
+                            /* root->child->next */
+                            { .op = 30 /* MUTT_SUBJECT */,
+                              .not = 0,
+                              .alladdr = 0,
+                              .stringmatch = 1,
+                              .groupmatch = 0,
+                              .ign_case = 1,
+                              .isalias = 0,
+                              .ismulti = 0,
+                              .min = 0,
+                              .max = 0,
+                              .p.str = "bar" },
+                            /* root->child->next->next */
+                            { .op = 30 /* MUTT_SUBJECT */,
+                              .not = 0,
+                              .alladdr = 0,
+                              .stringmatch = 1,
+                              .groupmatch = 0,
+                              .ign_case = 1,
+                              .isalias = 0,
+                              .ismulti = 0,
+                              .min = 0,
+                              .max = 0,
+                              .p.str = "quux" }
     };
 
-    expected[0].child = &expected[1];
-    expected[1].next = &expected[2];
-    expected[2].next = &expected[3];
+    SLIST_INIT(&expected);
+    SLIST_INSERT_HEAD(&expected, &e[0], entries);
+    SLIST_INSERT_HEAD(&e[0].child, &e[1], entries);
+    SLIST_INSERT_AFTER(&e[1], &e[2], entries);
+    SLIST_INSERT_AFTER(&e[2], &e[3], entries);
 
-    if (!TEST_CHECK(!cmp_pattern(pat, &expected[0])))
+    if (!TEST_CHECK(!cmp_pattern(pat, expected)))
     {
       char s2[1024];
-      canonical_pattern(s2, &expected[0], 0);
+      canonical_pattern(s2, expected, 0);
       TEST_MSG("Expected:\n%s", s2);
       canonical_pattern(s2, pat, 0);
       TEST_MSG("Actual:\n%s", s2);
@@ -561,93 +660,87 @@ void test_mutt_pattern_comp(void)
     mutt_buffer_reset(&err);
     pat = mutt_pattern_comp(s, 0, &err);
 
-    if (!TEST_CHECK(pat != NULL))
+    if (!TEST_CHECK(!SLIST_EMPTY(&pat)))
     {
-      TEST_MSG("Expected: pat != 0");
-      TEST_MSG("Actual  : pat == %p", pat);
+      TEST_MSG("Expected: pat == <not-empty>");
+      TEST_MSG("Actual  : pat == <empty>");
     }
 
-    struct Pattern expected[5] = { /* root */
-                                   { .op = 22 /* MUTT_AND */,
-                                     .not = 0,
-                                     .alladdr = 0,
-                                     .stringmatch = 0,
-                                     .groupmatch = 0,
-                                     .ign_case = 0,
-                                     .isalias = 0,
-                                     .ismulti = 0,
-                                     .min = 0,
-                                     .max = 0,
-                                     .next = NULL,
-                                     .child = NULL,
-                                     .p.str = NULL },
-                                   /* root->child */
-                                   { .op = 23 /* MUTT_OR */,
-                                     .not = 1,
-                                     .alladdr = 0,
-                                     .stringmatch = 0,
-                                     .groupmatch = 0,
-                                     .ign_case = 0,
-                                     .isalias = 0,
-                                     .ismulti = 0,
-                                     .min = 0,
-                                     .max = 0,
-                                     .next = NULL,
-                                     .child = NULL,
-                                     .p.str = NULL },
-                                   /* root->child->child */
-                                   { .op = 30 /* MUTT_SUBJECT */,
-                                     .not = 0,
-                                     .alladdr = 0,
-                                     .stringmatch = 1,
-                                     .groupmatch = 0,
-                                     .ign_case = 1,
-                                     .isalias = 0,
-                                     .ismulti = 0,
-                                     .min = 0,
-                                     .max = 0,
-                                     .next = NULL,
-                                     .child = NULL,
-                                     .p.str = "foo" },
-                                   /* root->child->child->next */
-                                   { .op = 30 /* MUTT_SUBJECT */,
-                                     .not = 0,
-                                     .alladdr = 0,
-                                     .stringmatch = 1,
-                                     .groupmatch = 0,
-                                     .ign_case = 1,
-                                     .isalias = 0,
-                                     .ismulti = 0,
-                                     .min = 0,
-                                     .max = 0,
-                                     .next = NULL,
-                                     .child = NULL,
-                                     .p.str = "bar" },
-                                   /* root->child->next */
-                                   { .op = 30 /* MUTT_SUBJECT */,
-                                     .not = 0,
-                                     .alladdr = 0,
-                                     .stringmatch = 1,
-                                     .groupmatch = 0,
-                                     .ign_case = 1,
-                                     .isalias = 0,
-                                     .ismulti = 0,
-                                     .min = 0,
-                                     .max = 0,
-                                     .next = NULL,
-                                     .child = NULL,
-                                     .p.str = "quux" }
+    struct PatternHead expected;
+
+    struct Pattern e[5] = { /* root */
+                            { .op = 22 /* MUTT_AND */,
+                              .not = 0,
+                              .alladdr = 0,
+                              .stringmatch = 0,
+                              .groupmatch = 0,
+                              .ign_case = 0,
+                              .isalias = 0,
+                              .ismulti = 0,
+                              .min = 0,
+                              .max = 0,
+                              .p.str = NULL },
+                            /* root->child */
+                            { .op = 23 /* MUTT_OR */,
+                              .not = 1,
+                              .alladdr = 0,
+                              .stringmatch = 0,
+                              .groupmatch = 0,
+                              .ign_case = 0,
+                              .isalias = 0,
+                              .ismulti = 0,
+                              .min = 0,
+                              .max = 0,
+                              .p.str = NULL },
+                            /* root->child->child */
+                            { .op = 30 /* MUTT_SUBJECT */,
+                              .not = 0,
+                              .alladdr = 0,
+                              .stringmatch = 1,
+                              .groupmatch = 0,
+                              .ign_case = 1,
+                              .isalias = 0,
+                              .ismulti = 0,
+                              .min = 0,
+                              .max = 0,
+                              .p.str = "foo" },
+                            /* root->child->child->next */
+                            { .op = 30 /* MUTT_SUBJECT */,
+                              .not = 0,
+                              .alladdr = 0,
+                              .stringmatch = 1,
+                              .groupmatch = 0,
+                              .ign_case = 1,
+                              .isalias = 0,
+                              .ismulti = 0,
+                              .min = 0,
+                              .max = 0,
+                              .p.str = "bar" },
+                            /* root->child->next */
+                            { .op = 30 /* MUTT_SUBJECT */,
+                              .not = 0,
+                              .alladdr = 0,
+                              .stringmatch = 1,
+                              .groupmatch = 0,
+                              .ign_case = 1,
+                              .isalias = 0,
+                              .ismulti = 0,
+                              .min = 0,
+                              .max = 0,
+                              .p.str = "quux" }
     };
 
-    expected[0].child = &expected[1];
-    expected[1].child = &expected[2];
-    expected[2].next = &expected[3];
-    expected[1].next = &expected[4];
+    SLIST_INIT(&expected);
+    SLIST_INSERT_HEAD(&expected, &e[0], entries);
+    SLIST_INSERT_HEAD(&e[0].child, &e[1], entries);
+    SLIST_INSERT_HEAD(&e[1].child, &e[2], entries);
+    SLIST_INSERT_AFTER(&e[2], &e[3], entries);
+    SLIST_INSERT_AFTER(&e[1], &e[4], entries);
 
-    if (!TEST_CHECK(!cmp_pattern(pat, &expected[0])))
+    if (!TEST_CHECK(!cmp_pattern(pat, expected)))
     {
       char s2[1024];
-      canonical_pattern(s2, &expected[0], 0);
+      canonical_pattern(s2, expected, 0);
       TEST_MSG("Expected:\n%s", s2);
       canonical_pattern(s2, pat, 0);
       TEST_MSG("Actual:\n%s", s2);
