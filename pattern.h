@@ -26,6 +26,8 @@
 #include <regex.h>
 #include <stdbool.h>
 #include <stddef.h>
+#include "mutt/list.h"
+#include "mutt/queue.h"
 
 struct Address;
 struct Buffer;
@@ -37,6 +39,8 @@ extern bool ThoroughSearch;
 
 /* flag to mutt_pattern_comp() */
 #define MUTT_FULL_MSG (1 << 0) /* enable body and header matching */
+
+SLIST_HEAD(PatternHead, Pattern);
 
 /**
  * struct Pattern - A simple (non-regex) pattern
@@ -53,8 +57,8 @@ struct Pattern
   bool ismulti : 1; /**< multiple case (only for I pattern now) */
   int min;
   int max;
-  struct Pattern *next;
-  struct Pattern *child; /**< arguments to logical op */
+  SLIST_ENTRY(Pattern) entries;
+  struct PatternHead child; /**< arguments to logical op */
   union {
     regex_t *regex;
     struct Group *g;
@@ -91,12 +95,11 @@ struct PatternCache
   int pers_from_one;  /**<  ~P */
 };
 
-struct Pattern *mutt_pattern_new(void);
-int mutt_pattern_exec(struct Pattern *pat, enum PatternExecFlag flags,
+int mutt_pattern_exec(struct PatternHead pat, enum PatternExecFlag flags,
                       struct Mailbox *m, struct Email *e, struct PatternCache *cache);
-struct Pattern *mutt_pattern_comp(/* const */ char *s, int flags, struct Buffer *err);
+struct PatternHead mutt_pattern_comp(/* const */ char *s, int flags, struct Buffer *err);
 void mutt_check_simple(char *s, size_t len, const char *simple);
-void mutt_pattern_free(struct Pattern **pat);
+void mutt_pattern_free(struct PatternHead *pat);
 
 int mutt_which_case(const char *s);
 int mutt_is_list_recipient(bool alladdr, struct Address *a1, struct Address *a2);
