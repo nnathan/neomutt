@@ -66,7 +66,7 @@ struct Hook
   int type;                /**< hook type */
   struct Regex regex;      /**< regular expression */
   char *command;           /**< filename, command or pattern to execute */
-  struct Pattern *pattern; /**< used for fcc,save,send-hook */
+  struct PatternHead pattern; /**< used for fcc,save,send-hook */
   TAILQ_ENTRY(Hook) entries;
 };
 static TAILQ_HEAD(, Hook) Hooks = TAILQ_HEAD_INITIALIZER(Hooks);
@@ -86,9 +86,10 @@ enum CommandResult mutt_parse_hook(struct Buffer *buf, struct Buffer *s,
   int rc;
   bool not = false, warning = false;
   regex_t *rx = NULL;
-  struct Pattern *pat = NULL;
+  struct PatternHead pat;
   char path[PATH_MAX];
 
+  SLIST_INIT(&pat);
   mutt_buffer_init(&pattern);
   mutt_buffer_init(&command);
 
@@ -249,7 +250,7 @@ enum CommandResult mutt_parse_hook(struct Buffer *buf, struct Buffer *s,
     pat = mutt_pattern_comp(
         pattern.data,
         (data & (MUTT_SEND_HOOK | MUTT_SEND2_HOOK | MUTT_FCC_HOOK)) ? 0 : MUTT_FULL_MSG, err);
-    if (!pat)
+    if (SLIST_EMPTY(&pat))
       goto error;
   }
   else if (~data & MUTT_GLOBAL_HOOK) /* NOT a global hook */
