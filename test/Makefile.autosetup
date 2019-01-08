@@ -18,7 +18,10 @@ CONFIG_OBJS	= test/config/main.o test/config/account.o \
 		  test/config/string.o test/config/synonym.o
 
 PATTERN_OBJS	= test/pattern/main.o \
-		  test/pattern/comp.o
+		  test/pattern/comp.o \
+		  test/pattern/dummy.o \
+		  test/pattern/extract.o \
+		  pattern.o
 
 CFLAGS	+= -I$(SRCDIR)/test
 
@@ -40,8 +43,8 @@ $(TEST_BINARY): $(TEST_OBJS) $(MUTTLIBS)
 $(TEST_CONFIG): $(PWD)/test/config $(CONFIG_OBJS) $(MUTTLIBS)
 	$(CC) -o $@ $(CONFIG_OBJS) $(MUTTLIBS) $(LDFLAGS) $(LIBS)
 
-$(TEST_PATTERN): $(PATTERN_OBJS) $(NEOMUTTOBJS_NO_MAIN) $(MUTTLIBS)
-	$(CC) -o $@ $(PATTERN_OBJS) $(NEOMUTTOBJS_NO_MAIN) $(MUTTLIBS) $(LDFLAGS) $(LIBS)
+$(TEST_PATTERN): $(PATTERN_OBJS) $(MUTTLIBS)
+	$(CC) -o $@ $(PATTERN_OBJS) $(MUTTLIBS) $(LDFLAGS) $(LIBS)
 
 $(PWD)/test/config:
 	$(MKDIR_P) $(PWD)/test/config
